@@ -63,9 +63,7 @@ Any valid `llama-server` flag can be used.
 
 ### Slots
 
-By default, slots 0–3 are managed. Each slot's KV cache is saved to `{slot_id}.bin` in the `--slot-save-path` directory. Only slots with existing cache files are restored on startup.
-
-To change the slot range, edit `SLOTS` in `main.py`. (TODO: pull this from `-np` and default to 4)
+The slot count is derived from the `-np` / `--parallel` flag passed to `llama-server`, defaulting to 4 if neither is provided. Each slot's KV cache is saved to `{slot_id}.bin` in the `--slot-save-path` directory. Only slots with existing cache files are restored on startup.
 
 ## Shutdown Behavior
 
