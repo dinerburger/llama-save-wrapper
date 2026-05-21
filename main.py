@@ -11,7 +11,6 @@ load_dotenv()
 
 # --- Configuration ---
 BINARY_PATH = os.environ.get("LLAMA_BINARY", "/usr/local/bin/llama-server")
-SLOTS = [0, 1, 2, 3]
 
 class LlamaGatekeeper:
     def __init__(self, public_port: int, extra_args: list):
@@ -27,6 +26,15 @@ class LlamaGatekeeper:
             idx = extra_args.index("--slot-save-path")
             if idx + 1 < len(extra_args):
                 self.save_path = extra_args[idx + 1]
+
+        # Extract -np / --parallel for slot count (default 4)
+        self.slots = list(range(4))
+        for flag in ("-np", "--parallel"):
+            if flag in extra_args:
+                idx = extra_args.index(flag)
+                if idx + 1 < len(extra_args):
+                    self.slots = list(range(int(extra_args[idx + 1])))
+                break
 
         self.process = None
         self.is_ready = False  # The "Gate" - False until restore_slots is done
@@ -48,7 +56,7 @@ class LlamaGatekeeper:
 
     async def restore_slots(self):
         print("🔄 Restoring slot KV caches...")
-        for slot_id in SLOTS:
+        for slot_id in self.slots:
             filename = f"{slot_id}.bin"
             if self.save_path:
                 filepath = os.path.join(self.save_path, filename)
@@ -76,7 +84,7 @@ class LlamaGatekeeper:
             print("⚠️ Backend never became ready, skipping save.")
             return
         print("💾 Signal received! Saving slot KV caches before exit...")
-        for slot_id in SLOTS:
+        for slot_id in self.slots:
             if self._force_quit:
                 print("⚠️ Force quit requested, aborting save.")
                 return
