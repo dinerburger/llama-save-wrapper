@@ -9,6 +9,11 @@ from aiohttp import web, ClientSession, ClientConnectorError
 
 load_dotenv()
 
+# Force line-buffered stdout/stderr so print() output appears immediately
+# even when piped (e.g. tmux, journalctl, file redirection)
+sys.stdout.reconfigure(line_buffering=True)
+sys.stderr.reconfigure(line_buffering=True)
+
 # --- Configuration ---
 BINARY_PATH = os.environ.get("LLAMA_BINARY", "/usr/local/bin/llama-server")
 
@@ -176,6 +181,7 @@ class LlamaGatekeeper:
                 if not line:
                     break
                 target.write(line)
+                target.flush()
 
         asyncio.create_task(pipe_stream(self.process.stdout, sys.stdout.buffer))
         asyncio.create_task(pipe_stream(self.process.stderr, sys.stderr.buffer))
