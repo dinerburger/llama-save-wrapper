@@ -59,52 +59,75 @@ class LlamaGatekeeper:
                 pass
             await asyncio.sleep(1)
 
+    async def _restore_slot(self, slot_id):
+        filename = f"{slot_id}.bin"
+        if self.save_path:
+            filepath = os.path.join(self.save_path, filename)
+            if not os.path.exists(filepath):
+                print(f"  - Slot {slot_id}: Skipped (no {filename})")
+                return
+        try:
+            async with self.session.post(
+                f"{self.backend_url}/slots/{slot_id}?action=restore",
+                json={"filename": filename}
+            ) as resp:
+                if resp.status == 200:
+                    print(f"  - Slot {slot_id}: Restored {filename}")
+                else:
+                    print(f"  - Slot {slot_id}: Failed to restore ({resp.status})")
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            print(f"  - Slot {slot_id}: Error during restore: {e}")
+
     async def restore_slots(self):
         print("🔄 Restoring slot KV caches...")
-        for slot_id in self.slots:
-            filename = f"{slot_id}.bin"
-            if self.save_path:
-                filepath = os.path.join(self.save_path, filename)
-                if not os.path.exists(filepath):
-                    print(f"  - Slot {slot_id}: Skipped (no {filename})")
-                    continue
-            try:
-                # POST /slots/{id}?action=restore
-                async with self.session.post(
-                    f"{self.backend_url}/slots/{slot_id}?action=restore", 
-                    json={"filename": filename}
-                ) as resp:
-                    if resp.status == 200:
-                        print(f"  - Slot {slot_id}: Restored {filename}")
-                    else:
-                        print(f"  - Slot {slot_id}: Failed to restore ({resp.status})")
-            except Exception as e:
-                print(f"  - Slot {slot_id}: Error during restore: {e}")
-        
+        await asyncio.gather(
+            *[self._restore_slot(slot_id) for slot_id in self.slots]
+        )
+
         self.is_ready = True
         print("🔓 Gate opened! /health is now returning 200 OK.")
+
+    async def _save_slot(self, slot_id):
+        filename = f"{slot_id}.bin"
+        try:
+            async with self.session.post(
+                f"{self.backend_url}/slots/{slot_id}?action=save",
+                json={"filename": filename}
+            ) as resp:
+                if resp.status == 200:
+                    print(f"  - Slot {slot_id}: Saved {filename}")
+                else:
+                    print(f"  - Slot {slot_id}: Failed to save ({resp.status})")
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            print(f"  - Slot {slot_id}: Error during save: {e}")
 
     async def save_slots(self):
         if not self.is_ready:
             print("⚠️ Backend never became ready, skipping save.")
             return
         print("💾 Signal received! Saving slot KV caches before exit...")
-        for slot_id in self.slots:
+
+        tasks = {asyncio.create_task(self._save_slot(slot_id)): slot_id
+                 for slot_id in self.slots}
+
+        while tasks:
             if self._force_quit:
                 print("⚠️ Force quit requested, aborting save.")
+                for t in tasks:
+                    t.cancel()
+                asyncio.gather(*tasks, return_exceptions=True)
                 return
-            filename = f"{slot_id}.bin"
-            try:
-                async with self.session.post(
-                    f"{self.backend_url}/slots/{slot_id}?action=save", 
-                    json={"filename": filename}
-                ) as resp:
-                    if resp.status == 200:
-                        print(f"  - Slot {slot_id}: Saved {filename}")
-                    else:
-                        print(f"  - Slot {slot_id}: Failed to save ({resp.status})")
-            except Exception as e:
-                print(f"  - Slot {slot_id}: Error during save: {e}")
+
+            done, pending = await asyncio.wait(
+                tasks, return_when=asyncio.FIRST_COMPLETED
+            )
+            for t in done:
+                pass  # results already logged in _save_slot
+            tasks = pending
 
     async def proxy_handler(self, request):
         """Handles all incoming requests and forwards them to the backend."""
