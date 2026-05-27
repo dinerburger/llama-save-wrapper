@@ -15,12 +15,11 @@ sys.stdout.reconfigure(line_buffering=True)
 sys.stderr.reconfigure(line_buffering=True)
 
 # --- Configuration ---
-BINARY_PATH = os.environ.get("LLAMA_BINARY", "/usr/local/bin/llama-server")
-
 class LlamaGatekeeper:
-    def __init__(self, public_port: int, extra_args: list):
+    def __init__(self, public_port: int, extra_args: list, binary: str):
         self.public_port = public_port
         self.extra_args = extra_args
+        self.binary = binary
         # Use a random port in the ephemeral range for the backend
         self.backend_port = random.randint(49152, 65535)
         self.backend_url = f"http://localhost:{self.backend_port}"
@@ -190,7 +189,7 @@ class LlamaGatekeeper:
             cmd_args.extend(["--port", str(self.backend_port)])
 
         self.process = await asyncio.create_subprocess_exec(
-            "stdbuf", "-oL", "-eL", BINARY_PATH, *cmd_args,
+            "stdbuf", "-oL", "-eL", self.binary, *cmd_args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             start_new_session=True,
@@ -266,6 +265,7 @@ class LlamaGatekeeper:
 
 async def main():
     parser = argparse.ArgumentParser(description="Llama-server Gatekeeper Proxy")
+    parser.add_argument("--llama-binary", default=None, help="Path to llama-server binary")
     args, unknown = parser.parse_known_args()
 
     public_port = None
@@ -278,7 +278,16 @@ async def main():
         print("❌ Error: --port xxxxx must be provided for the public proxy.")
         sys.exit(1)
 
-    gatekeeper = LlamaGatekeeper(public_port=public_port, extra_args=sys.argv[1:])
+    # Strip --llama-binary and its value so it doesn't reach llama-server
+    extra_args = sys.argv[1:]
+    if "--llama-binary" in extra_args:
+        idx = extra_args.index("--llama-binary")
+        if idx + 1 < len(extra_args) and not extra_args[idx + 1].startswith("-"):
+            extra_args.pop(idx + 1)
+        extra_args.pop(idx)
+
+    binary = args.llama_binary or os.environ.get("LLAMA_BINARY", "/usr/local/bin/llama-server")
+    gatekeeper = LlamaGatekeeper(public_port=public_port, extra_args=extra_args, binary=binary)
     
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
