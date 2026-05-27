@@ -154,10 +154,14 @@ class LlamaGatekeeper:
                 content_type = resp.headers.get("Content-Type", "")
                 if "text/event-stream" in content_type or "application/x-ndjson" in content_type:
                     # Streaming response — forward chunks as they arrive
-                    response = web.StreamResponse(status=resp.status)
+                    response = web.StreamResponse(
+                        status=resp.status,
+                        headers={k: v for k, v in resp.headers.items() if k.lower() != "transfer-encoding"},
+                    )
                     await response.prepare(request)
                     async for chunk in resp.content.iter_any():
                         await response.write(chunk)
+                    await response.write(b"")  # signal EOF
                     return response
                 else:
                     # Non-streaming response — return full body
