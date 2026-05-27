@@ -2,7 +2,7 @@ import asyncio
 import sys
 import signal
 import os
-import random
+import socket
 import argparse
 from dotenv import load_dotenv
 from aiohttp import web, ClientSession, ClientConnectorError
@@ -21,7 +21,9 @@ class LlamaGatekeeper:
         self.extra_args = extra_args
         self.binary = binary
         # Use a random port in the ephemeral range for the backend
-        self.backend_port = random.randint(49152, 65535)
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(('localhost', 0))
+            self.backend_port = s.getsockname()[1]
         self.backend_url = f"http://localhost:{self.backend_port}"
 
         # Extract --slot-save-path for later use
@@ -207,11 +209,11 @@ class LlamaGatekeeper:
                 line = await stream.readline()
                 if not line:
                     break
-                target.write(line)
+                target.write(line.decode())
                 target.flush()
 
-        asyncio.create_task(pipe_stream(self.process.stdout, sys.stdout.buffer))
-        asyncio.create_task(pipe_stream(self.process.stderr, sys.stderr.buffer))
+        asyncio.create_task(pipe_stream(self.process.stdout, sys.stdout))
+        asyncio.create_task(pipe_stream(self.process.stderr, sys.stderr))
 
         # 2. Setup Session and Proxy Server
         self.session = ClientSession()
