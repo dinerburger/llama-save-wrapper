@@ -45,6 +45,7 @@ class LlamaGatekeeper:
         self.session = None
         self._shutting_down = False
         self._force_quit = False
+        self._shutdown_event = asyncio.Event()
 
     async def wait_for_health(self):
         print(f"✨ Waiting for llama-server to be healthy on internal port {self.backend_port}...")
@@ -229,11 +230,15 @@ class LlamaGatekeeper:
 
         print("🏃 Wrapper is now active and proxying traffic. Use Ctrl+C to stop and save.")
         
-        # Keep the loop running until the process is terminated
+        # Keep the loop running until a signal or the process dies
         try:
-            while self.process.returncode is None:
-                await asyncio.sleep(1)
+            while self.process.returncode is None and not self._shutting_down:
+                await asyncio.wait(
+                    [asyncio.create_task(self._shutdown_event.wait())],
+                    timeout=1.0,
+                )
         finally:
+            await self.shutdown()
             await self.session.close()
             await runner.cleanup()
 
@@ -243,7 +248,7 @@ class LlamaGatekeeper:
             self._force_quit = True
             return
         self._shutting_down = True
-        asyncio.create_task(self.shutdown())
+        self._shutdown_event.set()
 
     async def shutdown(self):
         if self._force_quit:
@@ -265,7 +270,6 @@ class LlamaGatekeeper:
                     pass
         
         print("👋 Bye-bye!")
-        os._exit(0)
 
 async def main():
     parser = argparse.ArgumentParser(description="Llama-server Gatekeeper Proxy")
