@@ -14,6 +14,19 @@ load_dotenv()
 sys.stdout.reconfigure(line_buffering=True)
 sys.stderr.reconfigure(line_buffering=True)
 
+# Debug log — written to a file so it's visible even when
+# stdout/stderr are captured by a parent process (e.g. llama-swap).
+_debug_f = open('/tmp/llama-save-wrapper-debug.log', 'a')
+
+
+def _dbg(msg: str):
+    ts = __import__('time').ctime()
+    line = f"[{ts}] {msg}\n"
+    _debug_f.write(line)
+    _debug_f.flush()
+    sys.stdout.write(line)
+    sys.stdout.flush()
+
 # --- Configuration ---
 class LlamaGatekeeper:
     def __init__(self, public_port: int, extra_args: list, binary: str):
@@ -215,6 +228,7 @@ class LlamaGatekeeper:
             start_new_session=True,
         )
         print(f"🚀 Started llama-server on internal port {self.backend_port} (PID: {self.process.pid})")
+        _dbg(f"Wrapper PID={os.getpid()}, PGID={os.getpgid(os.getpid())}, llama-server PID={self.process.pid}")
 
         # Echo subprocess stdout/stderr to the correct channels
         async def pipe_stream(stream, target):
@@ -252,26 +266,26 @@ class LlamaGatekeeper:
                     [asyncio.create_task(self._shutdown_event.wait())],
                     timeout=1.0,
                 )
-            print(f"[DEBUG] Main loop exited: returncode={self.process.returncode}, _shutting_down={self._shutting_down}", flush=True)
+            _dbg(f"Main loop exited: returncode={self.process.returncode}, _shutting_down={self._shutting_down}")
         finally:
-            print("[DEBUG] Entering finally block, calling shutdown()", flush=True)
+            _dbg("Entering finally block, calling shutdown()")
             await self.shutdown()
             await self.session.close()
             await runner.cleanup()
-            print("[DEBUG] Cleanup complete", flush=True)
+            _dbg("Cleanup complete")
 
     def handle_exit(self, signum, frame):
-        print(f"\n[DEBUG] handle_exit called! signum={signum}", flush=True)
+        _dbg(f"handle_exit called! signum={signum}")
         if self._shutting_down:
-            print("\n⚠️ Second interrupt received — force quitting without saving!", flush=True)
+            _dbg("Second interrupt — force quitting without saving!")
             self._force_quit = True
             return
         self._shutting_down = True
         self._shutdown_event.set()
-        print("[DEBUG] _shutting_down=True, _shutdown_event set", flush=True)
+        _dbg("_shutting_down=True, _shutdown_event set")
 
     async def shutdown(self):
-        print("[DEBUG] shutdown() entered, _force_quit=" + str(self._force_quit), flush=True)
+        _dbg(f"shutdown() entered, _force_quit={self._force_quit}")
         if self._force_quit:
             print("⚠️ Force quit! Skipping save, terminating immediately.")
         else:
@@ -321,7 +335,7 @@ async def main():
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
         loop.add_signal_handler(sig, lambda s=sig: gatekeeper.handle_exit(s, None))
-    print("[DEBUG] Signal handlers registered for SIGINT, SIGTERM, SIGHUP", flush=True)
+    _dbg("Signal handlers registered for SIGINT, SIGTERM, SIGHUP")
 
     await gatekeeper.run()
 
