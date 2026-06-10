@@ -5,7 +5,7 @@ import os
 import socket
 import argparse
 from dotenv import load_dotenv
-from aiohttp import web, ClientSession, ClientConnectorError
+from aiohttp import web, ClientSession, ClientConnectorError, ClientTimeout
 
 load_dotenv()
 
@@ -48,6 +48,10 @@ class LlamaGatekeeper:
         self._shutting_down = False
         self._force_quit = False
         self._shutdown_event = asyncio.Event()
+
+        # Timeouts for slot save/restore HTTP calls and overall shutdown budget
+        self._slot_timeout = 5.0          # per-slot HTTP timeout (seconds)
+        self._save_timeout = 20.0         # overall save_slots() deadline (seconds)
 
     async def wait_for_health(self):
         print(f"✨ Waiting for llama-server to be healthy on internal port {self.backend_port}...")
@@ -94,16 +98,19 @@ class LlamaGatekeeper:
     async def _save_slot(self, slot_id):
         filename = f"{slot_id}.bin"
         try:
-            async with self.session.post(
-                f"{self.backend_url}/slots/{slot_id}?action=save",
-                json={"filename": filename}
-            ) as resp:
-                if resp.status == 200:
-                    print(f"  - Slot {slot_id}: Saved {filename}")
-                else:
-                    print(f"  - Slot {slot_id}: Failed to save ({resp.status})")
+            async with asyncio.timeout(self._slot_timeout):
+                async with self.session.post(
+                    f"{self.backend_url}/slots/{slot_id}?action=save",
+                    json={"filename": filename}
+                ) as resp:
+                    if resp.status == 200:
+                        print(f"  - Slot {slot_id}: Saved {filename}")
+                    else:
+                        print(f"  - Slot {slot_id}: Failed to save ({resp.status})")
         except asyncio.CancelledError:
             raise
+        except asyncio.TimeoutError:
+            print(f"  - Slot {slot_id}: Timed out after {self._slot_timeout}s")
         except Exception as e:
             print(f"  - Slot {slot_id}: Error during save: {e}")
 
@@ -113,6 +120,12 @@ class LlamaGatekeeper:
             return
         print("💾 Signal received! Saving slot KV caches before exit...")
 
+        try:
+            await asyncio.wait_for(self._save_slots_inner(), timeout=self._save_timeout)
+        except asyncio.TimeoutError:
+            print(f"⚠️ Save timed out after {self._save_timeout}s — proceeding with shutdown anyway.")
+
+    async def _save_slots_inner(self):
         tasks = {asyncio.create_task(self._save_slot(slot_id)): slot_id
                  for slot_id in self.slots}
 
@@ -121,7 +134,7 @@ class LlamaGatekeeper:
                 print("⚠️ Force quit requested, aborting save.")
                 for t in tasks:
                     t.cancel()
-                asyncio.gather(*tasks, return_exceptions=True)
+                await asyncio.gather(*tasks, return_exceptions=True)
                 return
 
             done, pending = await asyncio.wait(
@@ -216,7 +229,7 @@ class LlamaGatekeeper:
         asyncio.create_task(pipe_stream(self.process.stderr, sys.stderr))
 
         # 2. Setup Session and Proxy Server
-        self.session = ClientSession()
+        self.session = ClientSession(timeout=ClientTimeout(total=300))
         app = web.Application()
         app.router.add_route('*', '/{tail:.*}', self.proxy_handler)
         
