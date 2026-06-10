@@ -19,7 +19,6 @@ Client → Proxy (public port) → llama-server (internal port)
 - Python 3.13+
 - [`uv`](https://github.com/astral-sh/uv) for dependency management
 - A `llama-server` binary (from [llama.cpp](https://github.com/ggml-org/llama.cpp))
-- `stdbuf` (included in coreutils on most Linux distributions)
 
 ## Setup
 
