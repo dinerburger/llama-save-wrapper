@@ -252,20 +252,26 @@ class LlamaGatekeeper:
                     [asyncio.create_task(self._shutdown_event.wait())],
                     timeout=1.0,
                 )
+            print(f"[DEBUG] Main loop exited: returncode={self.process.returncode}, _shutting_down={self._shutting_down}", flush=True)
         finally:
+            print("[DEBUG] Entering finally block, calling shutdown()", flush=True)
             await self.shutdown()
             await self.session.close()
             await runner.cleanup()
+            print("[DEBUG] Cleanup complete", flush=True)
 
     def handle_exit(self, signum, frame):
+        print(f"\n[DEBUG] handle_exit called! signum={signum}", flush=True)
         if self._shutting_down:
-            print("\n⚠️ Second interrupt received — force quitting without saving!")
+            print("\n⚠️ Second interrupt received — force quitting without saving!", flush=True)
             self._force_quit = True
             return
         self._shutting_down = True
         self._shutdown_event.set()
+        print("[DEBUG] _shutting_down=True, _shutdown_event set", flush=True)
 
     async def shutdown(self):
+        print("[DEBUG] shutdown() entered, _force_quit=" + str(self._force_quit), flush=True)
         if self._force_quit:
             print("⚠️ Force quit! Skipping save, terminating immediately.")
         else:
@@ -314,7 +320,8 @@ async def main():
     
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
-        loop.add_signal_handler(sig, lambda: gatekeeper.handle_exit(None, None))
+        loop.add_signal_handler(sig, lambda s=sig: gatekeeper.handle_exit(s, None))
+    print("[DEBUG] Signal handlers registered for SIGINT, SIGTERM, SIGHUP", flush=True)
 
     await gatekeeper.run()
 
