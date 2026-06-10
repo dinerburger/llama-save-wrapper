@@ -209,7 +209,7 @@ class LlamaGatekeeper:
             cmd_args.extend(["--port", str(self.backend_port)])
 
         self.process = await asyncio.create_subprocess_exec(
-            "stdbuf", "-oL", "-eL", self.binary, *cmd_args,
+            self.binary, *cmd_args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             start_new_session=True,
