@@ -50,8 +50,8 @@ class LlamaGatekeeper:
         self._shutdown_event = asyncio.Event()
 
         # Timeouts for slot save/restore HTTP calls and overall shutdown budget
-        self._slot_timeout = 5.0          # per-slot HTTP timeout (seconds)
-        self._save_timeout = 20.0         # overall save_slots() deadline (seconds)
+        self._slot_timeout = 15.0          # per-slot HTTP timeout (seconds)
+        self._save_timeout = 25.0         # overall save_slots() deadline (seconds)
 
     async def wait_for_health(self):
         print(f"✨ Waiting for llama-server to be healthy on internal port {self.backend_port}...")
