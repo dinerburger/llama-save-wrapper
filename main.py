@@ -230,7 +230,7 @@ class LlamaGatekeeper:
 
         # 2. Setup Session and Proxy Server
         self.session = ClientSession(timeout=ClientTimeout(total=300))
-        app = web.Application()
+        app = web.Application(client_max_size=100 * 1024 * 1024)  # 100MB max request body
         app.router.add_route('*', '/{tail:.*}', self.proxy_handler)
         
         runner = web.AppRunner(app)
